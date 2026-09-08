@@ -12,7 +12,7 @@ from typing import Dict, Iterable, List, Optional, Set, Tuple
 
 import streamlit as st
 from openpyxl import load_workbook
-from openpyxl.styles import Alignment, Font, PatternFill
+from openpyxl.styles import Alignment, Font, PatternFill, Border, Side
 from openpyxl.utils import get_column_letter
 
 
@@ -566,6 +566,68 @@ def decide_match(
 # =========================
 # 写入 Excel
 # =========================
+def format_all_sheets(wb) -> None:
+    """
+    统一格式化整个工作簿：
+    - 所有工作表有效区域全部加细边框
+    - 所有文字水平/垂直居中
+    - 字体统一16号
+    - 保留原来的字体颜色、粗体、底色、公式、数字格式
+    """
+
+    thin_side = Side(
+        style="thin",
+        color="808080"   # 比之前的B7B7B7更明显
+    )
+
+    full_border = Border(
+        left=thin_side,
+        right=thin_side,
+        top=thin_side,
+        bottom=thin_side,
+    )
+
+    for ws in wb.worksheets:
+
+        max_row = ws.max_row
+        max_col = ws.max_column
+
+        # ★ 不再判断 cell.value 是否为空
+        # 整个实际使用区域全部加边框
+        for row in ws.iter_rows(
+            min_row=1,
+            max_row=max_row,
+            min_col=1,
+            max_col=max_col
+        ):
+            for cell in row:
+
+                # 字体：只改字号，不改原颜色/粗体等
+                # 汇总页单独20号
+                font = copy(cell.font)
+                if ws.title == SUMMARY_SHEET:
+                    font.sz = 20
+                else:
+                    font.sz = 16
+                cell.font = font
+
+                # 居中
+                cell.alignment = Alignment(
+                    horizontal="center",
+                    vertical="center",
+                    wrap_text=True,
+                )
+
+                # ★ 所有单元格强制边框
+                cell.border = full_border
+
+        # 行高
+        for row_idx in range(1, max_row + 1):
+            if ws.title == SUMMARY_SHEET:
+                ws.row_dimensions[row_idx].height = 32
+            else:
+                ws.row_dimensions[row_idx].height = 24
+
 def copy_row_style(ws, source_row: int, target_row: int, max_col: int = 10) -> None:
     """复制整行样式。仅处理导出的Excel，不修改Streamlit界面。"""
     ws.row_dimensions[target_row].height = ws.row_dimensions[source_row].height
@@ -581,19 +643,19 @@ def copy_row_style(ws, source_row: int, target_row: int, max_col: int = 10) -> N
 
 def ensure_town_layout(ws) -> None:
     """
-    乡镇明细固定为10列：
+    乡镇明细固定为11列：
     A客户、B25年销货、C26年销货单、D26年订单、E26年合计、
-    F期初、G已收、H总应收、I客户余款、J总销售。
+    F期初、G已收、H 6.12返点或抹零、I总应收、J客户余款、K总销售。
     """
     headers = [
         "客户", "25年销货", "26年销货单", "26年订单", "26年合计",
-        "期初", "已收", "总应收", "客户余款", "总销售",
+        "期初", "已收", "6.12返点或抹零", "总应收", "客户余款", "总销售",
     ]
 
-    # J列表头沿用I列样式。
-    if ws.max_column < 10 or not ws.cell(2, 10).has_style:
-        source = ws.cell(2, 9 if ws.max_column >= 9 else max(1, ws.max_column))
-        target = ws.cell(2, 10)
+    # K列表头沿用原最后一列样式。
+    if ws.max_column < 11 or not ws.cell(2, 11).has_style:
+        source = ws.cell(2, 10 if ws.max_column >= 10 else max(1, ws.max_column))
+        target = ws.cell(2, 11)
         if source.has_style:
             target._style = copy(source._style)
         target.alignment = copy(source.alignment)
@@ -602,16 +664,16 @@ def ensure_town_layout(ws) -> None:
     for col, title in enumerate(headers, start=1):
         ws.cell(2, col).value = title
 
-    # 标题横跨10列。
+    # 标题横跨11列。
     for merged in list(ws.merged_cells.ranges):
         if merged.min_row == 1 and merged.max_row == 1 and merged.min_col == 1:
             ws.unmerge_cells(str(merged))
-    ws.merge_cells("A1:J1")
+    ws.merge_cells("A1:K1")
 
     ws.freeze_panes = "A3"
-    ws.column_dimensions["A"].width = max(ws.column_dimensions["A"].width or 0, 30)
-    for col in "BCDEFGHIJ":
-        ws.column_dimensions[col].width = max(ws.column_dimensions[col].width or 0, 15)
+    ws.column_dimensions["A"].width = max(ws.column_dimensions["A"].width or 0, 32)
+    for col in "BCDEFGHIJK":
+        ws.column_dimensions[col].width = max(ws.column_dimensions[col].width or 0, 22)
 
 
 def add_customer_row(ws, customer_name: str) -> int:
@@ -619,10 +681,10 @@ def add_customer_row(ws, customer_name: str) -> int:
     ensure_town_layout(ws)
     total_row = find_total_row(ws)
     ws.insert_rows(total_row, 1)
-    copy_row_style(ws, max(3, total_row - 1), total_row, max_col=10)
+    copy_row_style(ws, max(3, total_row - 1), total_row, max_col=11)
     ws.cell(total_row, 1).value = customer_name
     ws.cell(total_row, 2).value = 0
-    for col in range(3, 11):
+    for col in range(3, 12):
         ws.cell(total_row, col).value = 0
     return total_row
 
@@ -655,8 +717,8 @@ def rebuild_town_total(ws, table_name: str = "") -> int:
     last_data_row = total_row - 1
     ws.cell(total_row, 1).value = "合计"
 
-    # B-G正常求和。
-    for col in range(2, 8):
+    # B-H正常求和（H为活动返点）。
+    for col in range(2, 9):
         letter = get_column_letter(col)
         ws.cell(total_row, col).value = (
             f"=SUM({letter}3:{letter}{last_data_row})"
@@ -665,22 +727,22 @@ def rebuild_town_total(ws, table_name: str = "") -> int:
 
     if last_data_row >= 3:
         # 乡镇总应收：负数预付款不能抵消其他客户欠款。
-        ws.cell(total_row, 8).value = (
-            f"=SUM(H3:H{last_data_row})+SUM(I3:I{last_data_row})"
+        ws.cell(total_row, 9).value = (
+            f"=SUM(I3:I{last_data_row})+SUM(J3:J{last_data_row})"
         )
-        ws.cell(total_row, 9).value = f"=SUM(I3:I{last_data_row})"
         ws.cell(total_row, 10).value = f"=SUM(J3:J{last_data_row})"
+        ws.cell(total_row, 11).value = f"=SUM(K3:K{last_data_row})"
     else:
-        for col in range(8, 11):
+        for col in range(9, 12):
             ws.cell(total_row, col).value = 0
 
-    # J列沿用I列样式。
-    if ws.cell(total_row, 9).has_style:
-        ws.cell(total_row, 10)._style = copy(ws.cell(total_row, 9)._style)
-        ws.cell(total_row, 10).alignment = copy(ws.cell(total_row, 9).alignment)
-        ws.cell(total_row, 10).number_format = ws.cell(total_row, 9).number_format
+    # K列沿用J列样式。
+    if ws.cell(total_row, 10).has_style:
+        ws.cell(total_row, 11)._style = copy(ws.cell(total_row, 10)._style)
+        ws.cell(total_row, 11).alignment = copy(ws.cell(total_row, 10).alignment)
+        ws.cell(total_row, 11).number_format = ws.cell(total_row, 10).number_format
 
-    for row in ws.iter_rows(min_row=2, max_row=total_row, min_col=1, max_col=10):
+    for row in ws.iter_rows(min_row=2, max_row=total_row, min_col=1, max_col=11):
         for cell in row:
             font = copy(cell.font)
             font.sz = 14
@@ -692,7 +754,7 @@ def rebuild_town_total(ws, table_name: str = "") -> int:
             )
 
     # 稳定方案：筛选范围不包含合计行，不创建 Excel Table。
-    _apply_stable_filter(ws, total_row, max_col=10)
+    _apply_stable_filter(ws, total_row, max_col=11)
     return total_row
 
 
@@ -787,12 +849,12 @@ def rebuild_summary_sheet(ws, towns: List[str], end_date: datetime) -> None:
         ws.cell(r, 4).value = town_sum_formula(town, "C")
         ws.cell(r, 5).value = town_sum_formula(town, "D")
         ws.cell(r, 6).value = f"=D{r}+E{r}"
-        ws.cell(r, 7).value = town_sum_formula(town, "I")
+        ws.cell(r, 7).value = town_sum_formula(town, "J")
         ws.cell(r, 8).value = f"=F{r}+G{r}"
         ws.cell(r, 9).value = town_sum_formula(town, "G")
         # 正数应收 = 客户总应收净额 + 客户余款。
         ws.cell(r, 10).value = (
-            f"={town_sum_formula(town, 'H')[1:]}+{town_sum_formula(town, 'I')[1:]}"
+            f"={town_sum_formula(town, 'I')[1:]}+{town_sum_formula(town, 'J')[1:]}"
         )
 
     # 总计行。
@@ -810,15 +872,15 @@ def rebuild_summary_sheet(ws, towns: List[str], end_date: datetime) -> None:
     _apply_stable_filter(ws, new_total_row, max_col=10)
     ws.freeze_panes = "A3"
 
-    ws.column_dimensions["A"].width = max(ws.column_dimensions["A"].width or 0, 9)
-    ws.column_dimensions["B"].width = max(ws.column_dimensions["B"].width or 0, 14)
+    ws.column_dimensions["A"].width = max(ws.column_dimensions["A"].width or 0, 10)
+    ws.column_dimensions["B"].width = max(ws.column_dimensions["B"].width or 0, 18)
     for col in "CDEFGHIJ":
-        ws.column_dimensions[col].width = max(ws.column_dimensions[col].width or 0, 20)
+        ws.column_dimensions[col].width = max(ws.column_dimensions[col].width or 0, 26)
 
     for row in ws.iter_rows(min_row=1, max_row=new_total_row, min_col=1, max_col=10):
         for cell in row:
             font = copy(cell.font)
-            font.sz = 18
+            font.sz = 20
             cell.font = font
             cell.alignment = Alignment(
                 horizontal="center",
@@ -889,9 +951,10 @@ def build_output(
         ws.cell(row, 5).value = f"=C{row}+D{row}"
         ws.cell(row, 6).value = 0
         ws.cell(row, 7).value = 0
-        ws.cell(row, 8).value = f"=E{row}+F{row}-G{row}"
-        ws.cell(row, 9).value = f'=IF(H{row}<0,ABS(H{row}),0)'
-        ws.cell(row, 10).value = f"=E{row}+I{row}"
+        ws.cell(row, 8).value = 0
+        ws.cell(row, 9).value = 0
+        ws.cell(row, 10).value = f'=IF(I{row}<0,ABS(I{row}),0)'
+        ws.cell(row, 11).value = f"=E{row}+J{row}"
 
     agg_sales: Dict[str, float] = defaultdict(float)
     agg_orders: Dict[str, float] = defaultdict(float)
@@ -926,9 +989,14 @@ def build_output(
         ws.cell(row, 5).value = f"=C{row}+D{row}"
         ws.cell(row, 6).value = round(lv.opening, 2)
         ws.cell(row, 7).value = round(lv.received, 2)
-        ws.cell(row, 8).value = f"=E{row}+F{row}-G{row}"
-        ws.cell(row, 9).value = f'=IF(H{row}<0,ABS(H{row}),0)'
-        ws.cell(row, 10).value = f"=E{row}+I{row}"
+        # 当前总应收 = 应收总账「期末余额」 + 未销货订单金额
+        ws.cell(row, 9).value = f"={round(lv.ending, 2)}+D{row}"
+        # 6.12返点或抹零 = 原总应收 - 当前总应收
+        # 原总应收 = 26年合计 + 期初 - 已收
+        # 恒等保证：原总应收 - 活动返点 = 当前总应收
+        ws.cell(row, 8).value = f"=(E{row}+F{row}-G{row})-I{row}"
+        ws.cell(row, 10).value = f'=IF(I{row}<0,ABS(I{row}),0)'
+        ws.cell(row, 11).value = f"=E{row}+J{row}"
 
     for town_index, town in enumerate(towns, start=1):
         town_ws = wb[town]
@@ -1058,6 +1126,8 @@ def build_output(
     # 保存前再次清除所有 Table 定义，保证输出包内不存在 /xl/tables/table*.xml。
     for sheet in wb.worksheets:
         _clear_tables(sheet)
+
+    format_all_sheets(wb)
 
     output = io.BytesIO()
     wb.save(output)

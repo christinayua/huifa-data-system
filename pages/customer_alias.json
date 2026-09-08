@@ -1,1 +1,127 @@
-{}
+{
+  "制表人:": {
+    "action": "ignore",
+    "display_name": "制表人:"
+  },
+  "厂家试放": {
+    "action": "ignore",
+    "display_name": "厂家试放"
+  },
+  "合计：": {
+    "action": "ignore",
+    "display_name": "合计："
+  },
+  "哈拉海张大龙-----停用": {
+    "action": "new",
+    "town": "哈拉海",
+    "display_name": "哈拉海张大龙-----停用"
+  },
+  "喜庆烟花公司": {
+    "action": "ignore",
+    "display_name": "喜庆烟花公司"
+  },
+  "康健(买车)": {
+    "action": "ignore",
+    "display_name": "康健（买车）"
+  },
+  "康健(农安镇)": {
+    "action": "ignore",
+    "display_name": "康健（农安镇）"
+  },
+  "康健(合隆装修)": {
+    "action": "ignore",
+    "display_name": "康健（合隆装修）"
+  },
+  "康健(库房装修)": {
+    "action": "ignore",
+    "display_name": "康健（库房装修）"
+  },
+  "康健(松原装修)": {
+    "action": "ignore",
+    "display_name": "康健（松原装修）"
+  },
+  "康总租房押金": {
+    "action": "ignore",
+    "display_name": "康总租房押金"
+  },
+  "快手保证金": {
+    "action": "ignore",
+    "display_name": "快手保证金"
+  },
+  "望奎公司": {
+    "action": "ignore",
+    "display_name": "望奎公司"
+  },
+  "筐押金": {
+    "action": "ignore",
+    "display_name": "筐押金"
+  },
+  "试放": {
+    "action": "ignore",
+    "display_name": "试放"
+  },
+  "赠品": {
+    "action": "ignore",
+    "display_name": "赠品"
+  },
+  "合隆刘海军": {
+    "action": "new",
+    "town": "合隆",
+    "display_name": "合隆刘海军"
+  },
+  "合隆李家殡葬": {
+    "action": "new",
+    "town": "合隆",
+    "display_name": "合隆李家殡葬"
+  },
+  "黄金洼中高农场于占芳": {
+    "action": "new",
+    "town": "黄金",
+    "display_name": "黄金洼中高农场于占芳"
+  },
+  "哈拉海张大龙停用": {
+    "action": "new",
+    "town": "哈拉海",
+    "display_name": "哈拉海张大龙  停用"
+  },
+  "张宏A": {
+    "action": "new",
+    "town": "员工",
+    "display_name": "张宏A"
+  },
+  "S江南林美烟花": {
+    "action": "new",
+    "town": "S 松原",
+    "display_name": "S江南林美烟花"
+  },
+  "德惠米沙子商艳红": {
+    "action": "new",
+    "town": "德惠",
+    "display_name": "德惠米沙子商艳红"
+  },
+  "德惠米沙子张静": {
+    "action": "new",
+    "town": "德惠",
+    "display_name": "德惠米沙子张静"
+  },
+  "S东三家子孙亮": {
+    "action": "new",
+    "town": "S 松原",
+    "display_name": "S东三家子孙亮"
+  },
+  "S唐雨林白依拉噶白衣嘎哈": {
+    "action": "new",
+    "town": "S 松原",
+    "display_name": "S唐雨林白依拉噶白衣嘎哈"
+  },
+  "兰家佛教用品": {
+    "action": "new",
+    "town": "其他类型",
+    "display_name": "兰家佛教用品"
+  },
+  "永吉刘哥": {
+    "action": "new",
+    "town": "其他类型",
+    "display_name": "永吉刘哥"
+  }
+}

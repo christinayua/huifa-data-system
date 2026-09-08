@@ -24,6 +24,7 @@ FIELDS = [
     "26年合计",
     "期初",
     "已收",
+    "6.12返点或抹零",
     "总应收",
     "客户余款",
     "总销售",
@@ -107,7 +108,7 @@ def extract_f_records(source_bytes: bytes):
     return records, duplicate_names, source_errors
 
 
-def copy_row_style(ws, source_row: int, target_row: int, max_col: int = 11):
+def copy_row_style(ws, source_row: int, target_row: int, max_col: int = 12):
     for col in range(1, max_col + 1):
         source = ws.cell(source_row, col)
         target = ws.cell(target_row, col)
@@ -196,15 +197,15 @@ def build_output(source_bytes: bytes, template_bytes: bytes | None):
 
     # 清空旧数据区
     for row_idx in range(data_start_row, max(ws.max_row, total_row) + 5):
-        for col_idx in range(1, 12):
+        for col_idx in range(1, 13):
             ws.cell(row_idx, col_idx).value = None
 
     # 若模板不存在，建立基础样式
     if not template_bytes:
-        ws.merge_cells(start_row=1, start_column=2, end_row=1, end_column=11)
-        ws.cell(1, 2).font = Font(size=16, bold=True, color="FFFFFF")
-        ws.cell(1, 2).fill = PatternFill("solid", fgColor="1F4E78")
-        ws.cell(1, 2).alignment = Alignment(horizontal="center", vertical="center")
+        ws.merge_cells(start_row=1, start_column=2, end_row=1, end_column=12)
+        ws.cell(1, 1).font = Font(size=16, bold=True, color="FFFFFF")
+        ws.cell(1, 1).fill = PatternFill("solid", fgColor="1F4E78")
+        ws.cell(1, 1).alignment = Alignment(horizontal="center", vertical="center")
 
         for col_idx, header in enumerate(OUTPUT_HEADERS, start=1):
             cell = ws.cell(header_row, col_idx, header)
@@ -212,12 +213,17 @@ def build_output(source_bytes: bytes, template_bytes: bytes | None):
             cell.fill = PatternFill("solid", fgColor="1F4E78")
             cell.alignment = Alignment(horizontal="center", vertical="center")
 
-        widths = [8, 30, 14, 14, 14, 14, 12, 14, 14, 14, 14]
+        widths = [8, 30, 14, 14, 14, 14, 12, 14, 16, 14, 14, 14]
         for idx, width in enumerate(widths, start=1):
             ws.column_dimensions[get_column_letter(idx)].width = width
 
     # 写标题
-    ws.cell(1, 2).value = (
+    # 无论是否上传旧模板，都重建第一行合并，避免漏掉A列。
+    for merged_range in list(ws.merged_cells.ranges):
+        if merged_range.min_row == 1 and merged_range.max_row == 1:
+            ws.unmerge_cells(str(merged_range))
+    ws.merge_cells("A1:L1")
+    ws.cell(1, 1).value = (
         f"销货单统计表（更新至{datetime.now():%Y.%m.%d}，"
         f"{len(ordered_keys)}个服务站）"
     )
@@ -245,6 +251,7 @@ def build_output(source_bytes: bytes, template_bytes: bytes | None):
             rec["26年合计"],
             rec["期初"],
             rec["已收"],
+            rec["6.12返点或抹零"],
             rec["总应收"],
             rec["客户余款"],
             rec["总销售"],
@@ -258,12 +265,12 @@ def build_output(source_bytes: bytes, template_bytes: bytes | None):
 
     ws.cell(total_row, 1).value = None
     ws.cell(total_row, 2).value = "合计"
-    for col_idx in range(3, 12):
+    for col_idx in range(3, 13):
         letter = get_column_letter(col_idx)
         ws.cell(total_row, col_idx).value = f"=SUM({letter}{data_start_row}:{letter}{total_row - 1})"
 
     thin = Side(style="thin", color="D6B656")
-    for col_idx in range(1, 12):
+    for col_idx in range(1, 13):
         cell = ws.cell(total_row, col_idx)
         cell.fill = PatternFill("solid", fgColor="FFF2CC")
         cell.font = Font(bold=True, color="7F6000")
@@ -271,8 +278,22 @@ def build_output(source_bytes: bytes, template_bytes: bytes | None):
         cell.border = Border(left=thin, right=thin, top=thin, bottom=thin)
 
     for row_idx in range(data_start_row, total_row + 1):
-        for col_idx in range(3, 12):
+        for col_idx in range(3, 13):
             ws.cell(row_idx, col_idx).number_format = '#,##0.00'
+
+    # 最终统一格式：标题完整合并，表头/数据/合计全部居中并带边框。
+    ws.row_dimensions[1].height = 32
+    title_cell = ws["A1"]
+    title_cell.font = Font(size=16, bold=True, color="FFFFFF")
+    title_cell.fill = PatternFill("solid", fgColor="1F4E78")
+    title_cell.alignment = Alignment(horizontal="center", vertical="center")
+
+    border_side = Side(style="thin", color="808080")
+    full_border = Border(left=border_side, right=border_side, top=border_side, bottom=border_side)
+    for row in ws.iter_rows(min_row=header_row, max_row=total_row, min_col=1, max_col=12):
+        for cell in row:
+            cell.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
+            cell.border = full_border
 
     ws.freeze_panes = f"A{data_start_row}"
 
