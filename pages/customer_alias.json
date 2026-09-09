@@ -123,5 +123,10 @@
     "action": "new",
     "town": "其他类型",
     "display_name": "永吉刘哥"
+  },
+  "S平凤赵小雪": {
+    "action": "new",
+    "town": "S 松原",
+    "display_name": "S平凤赵小雪"
   }
 }
