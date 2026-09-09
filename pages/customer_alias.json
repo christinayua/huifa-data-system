@@ -128,5 +128,10 @@
     "action": "new",
     "town": "S 松原",
     "display_name": "S平凤赵小雪"
+  },
+  "冷瑶A": {
+    "action": "new",
+    "town": "员工",
+    "display_name": "冷瑶A"
   }
 }
