@@ -133,5 +133,15 @@
     "action": "new",
     "town": "员工",
     "display_name": "冷瑶A"
+  },
+  "S乾安县大布苏镇泉双烟花": {
+    "action": "new",
+    "town": "S 松原",
+    "display_name": "S乾安县大布苏镇泉双烟花"
+  },
+  "S乾安县赞字乡张辉": {
+    "action": "new",
+    "town": "S 松原",
+    "display_name": "S乾安县赞字乡张辉"
   }
 }
