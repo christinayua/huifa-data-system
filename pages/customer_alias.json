@@ -143,5 +143,10 @@
     "action": "new",
     "town": "S 松原",
     "display_name": "S乾安县赞字乡张辉"
+  },
+  "S乾安县水字镇王二烟花": {
+    "action": "new",
+    "town": "S 松原",
+    "display_name": "S乾安县水字镇王二烟花"
   }
 }
