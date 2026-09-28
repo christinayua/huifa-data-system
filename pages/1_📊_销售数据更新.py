@@ -14,6 +14,8 @@ import streamlit as st
 from openpyxl import load_workbook
 from openpyxl.styles import Alignment, Font, PatternFill, Border, Side
 from openpyxl.utils import get_column_letter
+from openpyxl.worksheet.page import PageMargins
+from openpyxl.worksheet.properties import PageSetupProperties
 
 
 # =========================
@@ -566,6 +568,72 @@ def decide_match(
 # =========================
 # 写入 Excel
 # =========================
+def _sheet_title_rows(ws) -> str:
+    """
+    判断打印时每页要重复的表头行。
+    第1行是跨列合并的大标题（乡镇明细、汇总）时重复 1:2 行；
+    第1行本身就是表头（Merge_Log、更新检查）时只重复 1:1 行。
+    """
+    for merged in ws.merged_cells.ranges:
+        if (
+            merged.min_row == 1
+            and merged.max_row == 1
+            and merged.min_col == 1
+            and merged.max_col >= 2
+        ):
+            return "1:2"
+    return "1:1"
+
+
+def apply_print_setup(
+    ws,
+    last_row: int,
+    last_col: int,
+    title_rows: str = "1:2",
+    paper: str = "A4",
+    hide_gridlines: bool = True,
+) -> None:
+    """
+    统一设置单个工作表的打印版式：横向（横版）+ 所有列缩到一页宽。
+
+    关键点：fitToWidth / fitToHeight 只有在 pageSetUpPr.fitToPage=True 时才生效，
+    这三行必须一起写；只写 fitToWidth=1 不生效，Excel 仍按 100% 缩放并横向截成多页。
+    """
+    # 1) 横版
+    ws.page_setup.orientation = "landscape"
+
+    # 2) 纸张：A3 = 8，A4 = 9
+    ws.page_setup.paperSize = ws.PAPERSIZE_A3 if paper == "A3" else ws.PAPERSIZE_A4
+
+    # 3) 所有列压到一页宽，高度不限（纵向可翻页）
+    ws.sheet_properties.pageSetUpPr = PageSetupProperties(
+        fitToPage=True,
+        autoPageBreaks=False,
+    )
+    ws.page_setup.fitToWidth = 1
+    ws.page_setup.fitToHeight = 0
+    ws.page_setup.scale = None  # fitToPage 与 scale 互斥，清掉源文件可能残留的缩放值
+
+    # 4) 打印区域：有效数据区域，右侧/下方空白不进纸
+    ws.print_area = f"A1:{get_column_letter(last_col)}{last_row}"
+
+    # 5) 每页重复标题行/表头行，翻页后仍知道每列是什么
+    ws.print_title_rows = title_rows
+
+    # 6) 页边距收窄 + 水平居中，给缩放留出更多可用宽度
+    ws.page_margins = PageMargins(
+        left=0.25, right=0.25,
+        top=0.4, bottom=0.4,
+        header=0.2, footer=0.2,
+    )
+    ws.print_options.horizontalCentered = True
+    ws.print_options.gridLines = False  # 表格已有完整边框，不再重复打印网格线
+
+    # 7) 屏幕上也隐藏网格线（只影响显示，不影响打印内容）
+    if hide_gridlines:
+        ws.sheet_view.showGridLines = False
+
+
 def format_all_sheets(wb) -> None:
     """
     统一格式化整个工作簿：
@@ -606,9 +674,9 @@ def format_all_sheets(wb) -> None:
                 # 汇总页单独20号
                 font = copy(cell.font)
                 if ws.title == SUMMARY_SHEET:
-                    font.sz = 20
+                    font.sz = 24
                 else:
-                    font.sz = 16
+                    font.sz = 20
                 cell.font = font
 
                 # 居中
@@ -624,9 +692,21 @@ def format_all_sheets(wb) -> None:
         # 行高
         for row_idx in range(1, max_row + 1):
             if ws.title == SUMMARY_SHEET:
-                ws.row_dimensions[row_idx].height = 32
+                ws.row_dimensions[row_idx].height = 55
             else:
-                ws.row_dimensions[row_idx].height = 24
+                ws.row_dimensions[row_idx].height = 45
+
+        # 打印版式：横版 + 所有列缩到一页宽 + 每页重复标题行/表头行（A4）。
+        # 必须在所有插删行、合并单元格、列宽调整都完成之后设置，
+        # 否则打印区域和重复表头行会指到错误的位置。
+        # 本函数是整个工作簿保存前的最后一步，正好是所有版式定型的时机。
+        apply_print_setup(
+            ws,
+            last_row=max_row,
+            last_col=max_col,
+            title_rows=_sheet_title_rows(ws),
+            paper="A4",
+        )
 
 def copy_row_style(ws, source_row: int, target_row: int, max_col: int = 10) -> None:
     """复制整行样式。仅处理导出的Excel，不修改Streamlit界面。"""
@@ -745,7 +825,7 @@ def rebuild_town_total(ws, table_name: str = "") -> int:
     for row in ws.iter_rows(min_row=2, max_row=total_row, min_col=1, max_col=11):
         for cell in row:
             font = copy(cell.font)
-            font.sz = 14
+            font.sz = 20
             cell.font = font
             cell.alignment = Alignment(
                 horizontal="center",
@@ -1109,7 +1189,7 @@ def build_output(
 
     for row in check.iter_rows(min_row=2):
         for cell in row:
-            cell.font = Font(size=14)
+            cell.font = Font(size=20)
             cell.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
 
     check.column_dimensions["A"].width = 36

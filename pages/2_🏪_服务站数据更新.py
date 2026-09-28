@@ -9,6 +9,8 @@ import streamlit as st
 from openpyxl import load_workbook
 from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
 from openpyxl.utils import get_column_letter
+from openpyxl.worksheet.page import PageMargins
+from openpyxl.worksheet.properties import PageSetupProperties
 
 
 st.set_page_config(
@@ -162,6 +164,55 @@ def get_existing_order(ws):
     return names, header_row
 
 
+def apply_print_setup(
+    ws,
+    last_row: int,
+    last_col: int = 12,
+    title_rows: str = "1:2",
+    paper: str = "A4",
+    hide_gridlines: bool = True,
+) -> None:
+    """
+    统一设置打印版式：横向（横版）+ 所有列缩到一页宽。
+
+    关键点：fitToWidth / fitToHeight 只有在 pageSetUpPr.fitToPage=True 时才生效，
+    这三行必须一起写；只写 fitToWidth=1 不生效，Excel 仍按 100% 缩放并横向截成多页。
+    """
+    # 1) 横版
+    ws.page_setup.orientation = "landscape"
+
+    # 2) 纸张：A3 = 8，A4 = 9
+    ws.page_setup.paperSize = ws.PAPERSIZE_A3 if paper == "A3" else ws.PAPERSIZE_A4
+
+    # 3) 所有列压到一页宽，高度不限（纵向可翻页）
+    ws.sheet_properties.pageSetUpPr = PageSetupProperties(
+        fitToPage=True,
+        autoPageBreaks=False,
+    )
+    ws.page_setup.fitToWidth = 1
+    ws.page_setup.fitToHeight = 0
+    ws.page_setup.scale = None  # fitToPage 与 scale 互斥，清掉模板可能残留的缩放值
+
+    # 4) 打印区域：A1 到合计行，右侧/下方空白不进纸
+    ws.print_area = f"A1:{get_column_letter(last_col)}{last_row}"
+
+    # 5) 每页重复第1行标题 + 第2行表头，翻页后仍知道每列是什么
+    ws.print_title_rows = title_rows
+
+    # 6) 页边距收窄 + 水平居中，给缩放留出更多可用宽度
+    ws.page_margins = PageMargins(
+        left=0.25, right=0.25,
+        top=0.4, bottom=0.4,
+        header=0.2, footer=0.2,
+    )
+    ws.print_options.horizontalCentered = True
+    ws.print_options.gridLines = False  # 表格已有完整边框，不再重复打印网格线
+
+    # 7) 屏幕上也隐藏网格线（只影响显示，不影响打印内容）
+    if hide_gridlines:
+        ws.sheet_view.showGridLines = False
+
+
 def build_output(source_bytes: bytes, template_bytes: bytes | None):
     records, duplicates, source_errors = extract_f_records(source_bytes)
     if not records:
@@ -296,6 +347,10 @@ def build_output(source_bytes: bytes, template_bytes: bytes | None):
             cell.border = full_border
 
     ws.freeze_panes = f"A{data_start_row}"
+
+    # 打印设置：A4 横版 + 12列缩到一页宽 + 每页重复标题行/表头行。
+    # 必须放在所有行插入、合并单元格和列宽调整之后、保存之前。
+    apply_print_setup(ws, total_row, last_col=12, paper="A4")
 
     output = io.BytesIO()
     wb.save(output)

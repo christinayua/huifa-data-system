@@ -9,6 +9,8 @@ import streamlit as st
 from openpyxl import Workbook, load_workbook
 from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 from openpyxl.utils import get_column_letter
+from openpyxl.worksheet.page import PageMargins
+from openpyxl.worksheet.properties import PageSetupProperties
 
 
 st.set_page_config(
@@ -40,26 +42,28 @@ FOLLOWUP_FIELDS = [
     "下次跟进日期",
 ]
 
+# 分表字体大小。
+# None = 自动跟随总表正文行的字体（即上一版表格的字体），保证分表和总表看起来完全一致。
+# 只有当上一版表格用的是 Excel 默认 11 号、而你想让分表更大时，才需要改成数字，
+# 例如 SUB_SHEET_FONT_SIZE = 14。总表不受影响，始终原样保留模板的字体。
+SUB_SHEET_FONT_SIZE = None
+
 # =========================
 # 应收分片区配置
 # =========================
 AREA_GROUPS = {
     "陈明乡镇": {
         "伏龙泉", "三岗", "永安", "三盛玉", "烧锅", "开安", "刘家",
-        "巴吉垒", "龙王", "华家", "前岗", "翁克", "郭家", "黄金",
+        "巴吉垒", "鲍家", "合隆", "龙王", "华家", "前岗", "翁克", "郭家", "黄金", "德惠",
     },
     "刘春旭": {
         "青山", "哈拉海", "靠山", "万金塔", "高家店", "新农",
-        "小城子", "万顺", "黄鱼圈", "杨树林",
+        "小城子", "万顺", "黄鱼圈", "杨树林", "农安镇", "滨河", "柴岗", "三宝", "榛柴", "德惠",
     },
-    "李艳": {
-        "农安镇", "鲍家", "滨河", "柴岗", "德惠", "三宝", "榛柴",
-    },
-    "小魏": {"合隆"},
     "松原": {"S松原"},
 }
 
-AREA_SHEET_ORDER = ["陈明乡镇", "小魏", "李艳", "刘春旭", "松原", "其余"]
+AREA_SHEET_ORDER = ["陈明乡镇", "刘春旭", "松原", "其余"]
 
 
 def normalize_town_name(value):
@@ -286,14 +290,80 @@ def clear_data_area(ws, start_row, end_row, max_col=12):
             ws.cell(row_idx, col_idx).value = None
 
 
-def style_total_row(ws, row_idx):
+def build_font(body_fonts, col_idx, bold=False, color=None, size=None):
+    """基于总表正文行的字体生成指定列的字体。
+
+    分表是用 wb.create_sheet() 新建的，不会继承总表字体；
+    不显式设置的话会退回 Excel 默认的 11 号字，看起来比总表小一圈。
+    body_fonts 为 None 时退回默认字体（无旧模板的场景）。
+    size 传入数字可强制字号，传 None 则沿用总表正文行的字号。
+    """
+    base = body_fonts.get(col_idx) if body_fonts else None
+    font = copy(base) if base is not None else Font()
+    if size is not None:
+        font.size = size
+    font.bold = bold
+    if color is not None:
+        font.color = color
+    return font
+
+
+def style_total_row(ws, row_idx, body_fonts=None, size=None):
     thin = Side(style="thin", color="D6B656")
     for col_idx in range(1, 13):
         cell = ws.cell(row_idx, col_idx)
         cell.fill = PatternFill("solid", fgColor="FFF2CC")
-        cell.font = Font(bold=True, color="7F6000")
+        # 沿用总表正文行的字号，避免出现“正文 14 号、合计行 11 号”的错位
+        cell.font = build_font(body_fonts, col_idx, bold=True, color="7F6000", size=size)
         cell.alignment = Alignment(horizontal="center", vertical="center")
         cell.border = Border(left=thin, right=thin, top=thin, bottom=thin)
+
+
+def apply_print_setup(ws, last_row, last_col=12, paper="A4", hide_gridlines=True):
+    """统一设置单个 Sheet 的打印版式：A4 横版 + 所有列缩到一页宽 + 每页重复表头行。
+
+    ws            : openpyxl worksheet
+    last_row      : 最后一个有效行（总表传 total_row，分表传 sub_total_row）
+    last_col      : 最后一列序号，默认 12（L 列）
+    paper         : "A4"（默认）；如需更大纸张改成 "A3"
+    hide_gridlines: 打开文件时是否隐藏屏幕网格线（表格自带边框，隐藏更干净）
+
+    关键点：fitToWidth / fitToHeight 只有在 pageSetUpPr.fitToPage=True 时才生效，
+    这三行必须一起写；只写 fitToWidth=1 不生效，Excel 仍按 100% 缩放并横向截成多页。
+    """
+    # 1) 横版
+    ws.page_setup.orientation = "landscape"
+
+    # 2) 纸张：A3 = 8，A4 = 9
+    ws.page_setup.paperSize = ws.PAPERSIZE_A3 if paper == "A3" else ws.PAPERSIZE_A4
+
+    # 3) 所有列压到一页宽，高度不限（纵向可翻页）
+    ws.sheet_properties.pageSetUpPr = PageSetupProperties(
+        fitToPage=True,
+        autoPageBreaks=False,
+    )
+    ws.page_setup.fitToWidth = 1
+    ws.page_setup.fitToHeight = 0
+    ws.page_setup.scale = None  # fitToPage 与 scale 互斥，清掉旧模板可能残留的缩放值
+
+    # 4) 打印区域：A1 到合计行，右侧/下方的空白不进纸
+    ws.print_area = f"A1:{get_column_letter(last_col)}{last_row}"
+
+    # 5) 每页重复第1行标题 + 第2行表头，翻页后仍知道每列是什么
+    ws.print_title_rows = "1:2"
+
+    # 6) 页边距收窄 + 水平居中，给缩放留出更多可用宽度
+    ws.page_margins = PageMargins(
+        left=0.25, right=0.25,
+        top=0.4, bottom=0.4,
+        header=0.2, footer=0.2,
+    )
+    ws.print_options.horizontalCentered = True
+    ws.print_options.gridLines = False  # 表格已有完整边框，不再重复打印网格线
+
+    # 7) 屏幕上也隐藏网格线（只影响显示，不影响打印内容）
+    if hide_gridlines:
+        ws.sheet_view.showGridLines = False
 
 
 def build_receivable_output(source_bytes, template_bytes=None):
@@ -384,7 +454,7 @@ def build_receivable_output(source_bytes, template_bytes=None):
         cell.fill = header_fill
         cell.font = Font(
             name="SimHei",
-            size=16,
+            size=20,
             bold=True,
             color="FFFFFF",
         )
@@ -451,6 +521,13 @@ def build_receivable_output(source_bytes, template_bytes=None):
             "下次跟进日期": saved.get("下次跟进日期"),
         })
 
+    # 记录总表正文行的字体（继承自上一版表格），供合计行与各分表复用。
+    # 必须在写入正文之后、生成分表之前取，否则拿不到模板的字体。
+    body_fonts = {
+        col_idx: copy(ws.cell(data_start_row, col_idx).font)
+        for col_idx in range(1, len(OUTPUT_HEADERS) + 1)
+    }
+
     # 合计行保持用户原表形式：A列“共XX户”，B列“合计”
     ws.cell(total_row, 1).value = f"共{len(eligible)}户"
     ws.cell(total_row, 2).value = "合计"
@@ -458,7 +535,7 @@ def build_receivable_output(source_bytes, template_bytes=None):
         letter = get_column_letter(col_idx)
         ws.cell(total_row, col_idx).value = f"=SUM({letter}{data_start_row}:{letter}{total_row - 1})"
         ws.cell(total_row, col_idx).number_format = '#,##0.00'
-    style_total_row(ws, total_row)
+    style_total_row(ws, total_row, body_fonts)
 
     # 日期列格式
     for row_idx in range(data_start_row, total_row):
@@ -550,7 +627,7 @@ def build_receivable_output(source_bytes, template_bytes=None):
         cell.fill = PatternFill("solid", fgColor="4472C4")
         cell.font = Font(
             name="SimHei",
-            size=16,
+            size=20,
             bold=True,
             color="FFFFFF",
         )
@@ -560,6 +637,12 @@ def build_receivable_output(source_bytes, template_bytes=None):
             wrap_text=True,
         )
         cell.border = full_border
+
+    # 打印设置：总表
+    # A4 横版 + 12列缩到一页宽 + 每页重复标题行/表头行。
+    # 注意：下面的分表是 wb.create_sheet() 新建的，不会继承这里的设置，
+    #       必须在分表循环内再单独调用一次 apply_print_setup()。
+    apply_print_setup(ws, total_row, paper="A4")
 
     # =========================
     # 生成六个分 Sheet
@@ -623,7 +706,7 @@ def build_receivable_output(source_bytes, template_bytes=None):
             cell.fill = PatternFill("solid", fgColor="4472C4")
             cell.font = Font(
                 name="SimHei",
-                size=16,
+                size=20,
                 bold=True,
                 color="FFFFFF",
             )
@@ -675,6 +758,9 @@ def build_receivable_output(source_bytes, template_bytes=None):
 
             for col_idx, value in enumerate(row_values, start=1):
                 cell = sub_ws.cell(r, col_idx, value)
+                # 分表不继承总表字体，这里逐列沿用总表正文行字体，
+                # 否则会退回 Excel 默认的 11 号字。
+                cell.font = build_font(body_fonts, col_idx, size=SUB_SHEET_FONT_SIZE)
                 cell.alignment = Alignment(
                     horizontal="center",
                     vertical="center",
@@ -704,13 +790,16 @@ def build_receivable_output(source_bytes, template_bytes=None):
                 sub_ws.cell(sub_total_row, col_idx).value = 0
             sub_ws.cell(sub_total_row, col_idx).number_format = '#,##0.00'
 
-        style_total_row(sub_ws, sub_total_row)
-        # style_total_row 现在按12列处理。
+        style_total_row(sub_ws, sub_total_row, body_fonts, SUB_SHEET_FONT_SIZE)
+        # style_total_row 现在按12列处理，并沿用总表正文行字号。
         sub_ws.row_dimensions[sub_total_row].height = 30
 
         # 分表不冻结、不自动筛选，保持与总表一致。
         sub_ws.freeze_panes = None
         sub_ws.auto_filter.ref = None
+
+        # 打印设置：分表与总表保持一致（A4 横版 + 一页宽 + 重复标题行/表头行）
+        apply_print_setup(sub_ws, sub_total_row, paper="A4")
 
     output = io.BytesIO()
     wb.save(output)
@@ -755,7 +844,7 @@ with st.sidebar:
 - 输出文件不保留易损坏的 Excel Table 结构，避免打开时提示修复
 - 下载文件中：
   - “应收账款跟进表”为总表
-  - 自动生成：陈明乡镇、小魏、李艳、刘春旭、松原、其余 六个分表
+  - 自动生成：陈明乡镇、刘春旭、松原、其余 五个分表
   - 未配置到指定片区的乡镇、长春、其他类型、员工自动归入“其余”
         """
     )
